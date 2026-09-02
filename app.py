@@ -454,6 +454,18 @@ with tab_scan:
                     a.markdown(f"현재가 **{r['현재가']:,}**  \n당일 {r['당일등락률(%)']:+.2f}%  \n원바닥 ×{r['원바닥배수']}")
                     b.markdown(f"목표가 **{r['이익실현목표가']:,}**  \n손절선 {r['손절기준지지선']:,}")
                     st.markdown(f"매수패턴: {r['매수패턴']}  \n회피패턴: {r['회피패턴']}")
+
+                    ext_url = (f"https://finance.naver.com/item/main.naver?code={r['Ticker']}"
+                              if market_type == "KR"
+                              else f"https://finance.yahoo.com/quote/{r['Ticker']}")
+                    ext_label = "🔗 네이버금융에서 보기" if market_type == "KR" else "🔗 야후파이낸스에서 보기"
+                    bc1, bc2 = st.columns(2)
+                    bc1.link_button(ext_label, ext_url, use_container_width=True)
+                    if bc2.button("📊 앱에서 차트 보기", key=f"chart_btn_{r['Ticker']}", use_container_width=True):
+                        st.session_state["prefill_ticker"] = r["Ticker"]
+                        st.session_state["prefill_market"] = market_type
+                        st.session_state["prefill_autorun"] = True
+                        st.rerun()
         else:
             st.dataframe(f, use_container_width=True, hide_index=True)
 
@@ -475,10 +487,22 @@ with tab_scan:
 
 # ---------- 종목 상세 탭 ----------
 with tab_detail:
+    if "d_ticker_input" not in st.session_state:
+        st.session_state["d_ticker_input"] = "005930"
+    if "d_market" not in st.session_state:
+        st.session_state["d_market"] = "KR"
+
+    auto_run = False
+    if st.session_state.get("prefill_ticker"):
+        st.session_state["d_market"] = st.session_state.pop("prefill_market")
+        st.session_state["d_ticker_input"] = st.session_state.pop("prefill_ticker")
+        auto_run = st.session_state.pop("prefill_autorun", False)
+
     d_market = st.radio("시장 ", ["KR", "US"], horizontal=True, key="d_market",
                         format_func=lambda x: "🇰🇷 국내" if x == "KR" else "🇺🇸 미국")
-    d_ticker = st.text_input("종목코드 / 티커", "005930" if d_market == "KR" else "AAPL")
-    if st.button("차트 보기", use_container_width=True):
+    d_ticker = st.text_input("종목코드 / 티커", key="d_ticker_input")
+
+    if st.button("차트 보기", use_container_width=True) or auto_run:
         try:
             with st.spinner("차트 데이터 조회 중..."):
                 df = get_kr_ohlcv(d_ticker, 600) if d_market == "KR" else get_us_ohlcv(d_ticker, 600)
@@ -506,6 +530,11 @@ with tab_detail:
                 c3.metric("판정", res["판정"])
                 st.markdown(f"**매수패턴:** {res['매수패턴']}  \n**회피패턴:** {res['회피패턴']}  \n"
                             f"**이익실현목표가:** {res['이익실현목표가']:,}  ·  **손절기준지지선:** {res['손절기준지지선']:,}")
+
+            ext_url = (f"https://finance.naver.com/item/main.naver?code={d_ticker}"
+                      if d_market == "KR" else f"https://finance.yahoo.com/quote/{d_ticker}")
+            ext_label = "🔗 네이버금융에서 보기" if d_market == "KR" else "🔗 야후파이낸스에서 보기"
+            st.link_button(ext_label, ext_url, use_container_width=True)
         except Exception as e:
             st.error(f"⚠️ 차트 데이터를 가져오지 못했습니다: {e}")
 
