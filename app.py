@@ -465,6 +465,7 @@ with tab_scan:
                         st.session_state["prefill_ticker"] = r["Ticker"]
                         st.session_state["prefill_market"] = market_type
                         st.session_state["prefill_autorun"] = True
+                        st.toast(f"📊 {r['종목명']} 차트 준비 완료! 위의 '종목 상세' 탭을 눌러 확인하세요.", icon="📊")
                         st.rerun()
         else:
             st.dataframe(f, use_container_width=True, hide_index=True)
