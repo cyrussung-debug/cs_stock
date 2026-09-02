@@ -240,7 +240,8 @@ def detect_top_distribution(df, window=20, band=0.05) -> bool:
     return bool(in_band >= window * 0.6 and vol_hold)
 
 
-def analyze_ticker(ticker, name, df, is_light_cap=True, gain_th=0.10, vol_mult=2.0) -> dict | None:
+def analyze_ticker(ticker, name, df, is_light_cap=True, gain_th=0.10, vol_mult=2.0,
+                    overheat_mult=4.0) -> dict | None:
     """Zone 분류 + 매수/회피 패턴 판정 + 이익실현·손절 기준가 산출"""
     df = df.dropna()
     if len(df) < 60:
@@ -260,8 +261,8 @@ def analyze_ticker(ticker, name, df, is_light_cap=True, gain_th=0.10, vol_mult=2
     if detect_goganori(df):
         buy.append(f"{zone} 고가놀이")
 
-    if detect_overextended(df, base_price):
-        avoid.append("앞/뒤폭탄(과열)")
+    if detect_overextended(df, base_price, mult_th=overheat_mult):
+        avoid.append(f"앞/뒤폭탄(과열, 원바닥×{overheat_mult:.1f} 초과)")
     if detect_downtrend(df):
         avoid.append("내리막(폭포/계단/외봉)")
     if detect_choppy(df):
@@ -314,7 +315,8 @@ def run_scan(market_type, params) -> pd.DataFrame:
             df = fetch(str(row.Ticker), 600)
             res = analyze_ticker(str(row.Ticker), row.종목명, df,
                                  is_light_cap=(df["Close"].iloc[-1] <= params["light_cap_th"]),
-                                 gain_th=params["gain_th"], vol_mult=params["vol_mult"])
+                                 gain_th=params["gain_th"], vol_mult=params["vol_mult"],
+                                 overheat_mult=params.get("overheat_mult", 4.0))
             if res:
                 res["당일등락률(%)"] = round(float(row.등락률), 2)
                 results.append(res)
@@ -360,6 +362,9 @@ with tab_scan:
                                                      value=50_000, step=1_000)
             params["gain_th"] = st.slider("장대양봉 최소 상승폭(%)", 5, 20, 10) / 100
             params["vol_mult"] = st.slider("장대양봉 거래량 배수(전일比)", 1.5, 4.0, 2.0, 0.5)
+            params["overheat_mult"] = st.slider(
+                "과열(회피) 판단 배수 — 원바닥×N 초과면 회피", 2.0, 8.0, 4.0, 0.5,
+                help="이미 많이 오른 종목을 걸러내는 기준입니다. 값을 높이면 이미 급등한 종목도 '매수후보'로 나올 수 있습니다.")
     else:
         default_univ = "AAPL,MSFT,NVDA,TSLA,AMD,META,AMZN,GOOGL,NFLX,AVGO,PLTR,COIN,RBLX,SMCI,ARM"
         univ_text = st.text_area("워치리스트 (티커, 쉼표 구분)", default_univ, height=80)
@@ -372,6 +377,9 @@ with tab_scan:
                                                      value=20.0, step=1.0)
             params["gain_th"] = st.slider("장대양봉 최소 상승폭(%)", 5, 20, 10) / 100
             params["vol_mult"] = st.slider("장대양봉 거래량 배수(전일比)", 1.5, 4.0, 2.0, 0.5)
+            params["overheat_mult"] = st.slider(
+                "과열(회피) 판단 배수 — 원바닥×N 초과면 회피", 2.0, 10.0, 4.0, 0.5,
+                help="이미 많이 오른 대형 성장주가 많은 워치리스트라면 값을 높여보세요(예: 6~8).")
 
     if st.button("🚀 지금 스캔하기", use_container_width=True, type="primary"):
         t0 = time.time()
@@ -396,6 +404,9 @@ with tab_scan:
         m1.metric("✅ 매수후보", n_buy)
         m2.metric("👀 관찰", n_watch)
         m3.metric("⛔ 회피", n_avoid)
+        if n_buy == 0 and n_watch == 0 and n_avoid > 0:
+            st.caption("💡 전부 '회피'로 나왔다면 워치리스트/종목들이 대부분 이미 많이 오른 상태일 수 있어요. "
+                       "세부 필터의 **'과열(회피) 판단 배수'** 를 높이거나(예: 6~8), 워치리스트를 다양화해보세요.")
 
         show = st.multiselect("표시할 판정", ["✅ 매수후보", "👀 관찰", "⛔ 회피"],
                               default=["✅ 매수후보", "👀 관찰"])
@@ -424,7 +435,13 @@ with tab_scan:
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                            use_container_width=True)
     else:
-        st.info("위에서 시장을 고른 뒤 **지금 스캔하기**를 누르세요. (책의 기준: 12:30 이후 조회, 14:30 이후 매수)")
+        if market_type == "KR":
+            st.info("위에서 시장을 고른 뒤 **지금 스캔하기**를 누르세요.\n\n"
+                    "※ '12:30 이후'는 프로그램의 제약이 아니라 **국내 장중 참고용 안내**입니다. "
+                    "장 시작 직후엔 등락률 상위 종목이 자주 바뀌어서, 어느 정도 안정되는 12:30 이후 확인을 "
+                    "권장한다는 뜻일 뿐 — 아무 때나 스캔해도 정상 작동합니다.")
+        else:
+            st.info("위에서 시장을 고른 뒤 **지금 스캔하기**를 누르세요. 미국 시장은 시간 제약 없이 언제든 스캔 가능합니다.")
 
 # ---------- 종목 상세 탭 ----------
 with tab_detail:
