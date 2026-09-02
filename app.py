@@ -102,24 +102,32 @@ def get_us_ohlcv(ticker: str, lookback_days: int = 600) -> pd.DataFrame:
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_us_top_gainers(universe: tuple, min_volume: int, min_price: float) -> pd.DataFrame:
-    """워치리스트 내 당일 등락률 상위 (미국은 무료 전체시장 스크리너가 없어 워치리스트 기준)"""
+    """워치리스트 내 당일 등락률 상위 (미국은 무료 전체시장 스크리너가 없어 워치리스트 기준)
+    워치리스트가 클 수 있으므로 100개씩 나눠서 조회 (야후 파이낸스 안정성)"""
     if not universe:
         return pd.DataFrame()
-    data = yf.download(list(universe), period="5d", interval="1d",
-                       group_by="ticker", progress=False, threads=True)
+    universe = list(universe)
+    chunk_size = 100
     rows = []
-    for t in universe:
+    for i in range(0, len(universe), chunk_size):
+        chunk = universe[i:i + chunk_size]
         try:
-            sub = (data[t] if len(universe) > 1 else data).dropna()
-            if len(sub) < 2:
-                continue
-            prev_close, close = sub["Close"].iloc[-2], sub["Close"].iloc[-1]
-            vol = sub["Volume"].iloc[-1]
-            if vol >= min_volume and close >= min_price:
-                rows.append({"Ticker": t, "종목명": t, "종가": close,
-                             "등락률": (close - prev_close) / prev_close * 100, "거래량": vol})
+            data = yf.download(chunk, period="5d", interval="1d",
+                               group_by="ticker", progress=False, threads=True)
         except Exception:
             continue
+        for t in chunk:
+            try:
+                sub = (data[t] if len(chunk) > 1 else data).dropna()
+                if len(sub) < 2:
+                    continue
+                prev_close, close = sub["Close"].iloc[-2], sub["Close"].iloc[-1]
+                vol = sub["Volume"].iloc[-1]
+                if vol >= min_volume and close >= min_price:
+                    rows.append({"Ticker": t, "종목명": t, "종가": close,
+                                 "등락률": (close - prev_close) / prev_close * 100, "거래량": vol})
+            except Exception:
+                continue
     return pd.DataFrame(rows).sort_values("등락률", ascending=False) if rows else pd.DataFrame()
 
 
@@ -366,10 +374,28 @@ with tab_scan:
                 "과열(회피) 판단 배수 — 원바닥×N 초과면 회피", 2.0, 8.0, 4.0, 0.5,
                 help="이미 많이 오른 종목을 걸러내는 기준입니다. 값을 높이면 이미 급등한 종목도 '매수후보'로 나올 수 있습니다.")
     else:
-        default_univ = "AAPL,MSFT,NVDA,TSLA,AMD,META,AMZN,GOOGL,NFLX,AVGO,PLTR,COIN,RBLX,SMCI,ARM"
-        univ_text = st.text_area("워치리스트 (티커, 쉼표 구분)", default_univ, height=80)
-        params["universe"] = [x.strip().upper() for x in univ_text.split(",") if x.strip()]
-        params["top_n"] = st.slider("등락률 상위 N개 분석", 5, 50, 15)
+        default_univ = ("GOOG,META,AAPL,BABA,MSFT,FAS,FAZ,TNA,TZA,BTCS,TTI,TSLA,DJT,NVDA,UBER,PLTR,AMWL,AMC,NKLA,ZIM,"
+                        "ZM,DBX,TAUG,LCID,RIVN,FMCC,FNMA,IONQ,UA,SPY,HOOD,SNAP,CHPT,GLD,PFE,CPNG,CTRM,AXP,TDOC,ERJ,"
+                        "OUST,BA,NFLX,AMZN,CME,GRPN,F,BAC,C,EBAY,DIS,XOM,BKNG,EXPE,ADBE,V,ICE,KO,TWLO,NUS,TRIP,PSX,"
+                        "USO,BRK-A,PYPL,SBUX,TQQQ,SRPT,SND,HLF,RIOT,PM,ACN,LYFT,CHGG,ASML,MU,HLT,AMD,TLT,COST,DAL,"
+                        "INO,RCL,MAR,AAL,NASDX,JBLU,UAL,WMT,COTY,LULU,GILD,GIL,ULTA,MDT,TRV,JNJ,CCL,CAT,CMG,TOPS,"
+                        "VAL,MRNA,AOR,LTPZ,VT,REGN,MGM,CZR,CLX,CHTR,ORCL,HD,ENB,HON,INTC,JD,QQQ,UONE,LMT,NKE,T,MCD,"
+                        "JPM,KODK,HAS,EB,CRM,INTU,LEGN,RVMD,TSM,SNOW,CNXS,FSLY,TRMB,BEKE,MGA,ARKQ,RBLX,COIN,AZN,"
+                        "ARKK,XLI,XLF,XLB,SPOT,SONY,PINS,RDW,DIA,VO,GDDY,PLUG,BLNK,LAC,ALB,FCX,QCOM,SOXL,WRBY,SDGR,"
+                        "RPRX,FND,U,SLDP,MRVL,DOCU,CVX,UTSL,TECS,HCP,PDBC,PXGYF,BATT,LIT,FDX,UPS,SCHW,SPHD,LVMHF,"
+                        "HESAY,LVMUY,HESAF,PDRDF,PRNDY,O,MRK,GME,UPST,IBM,AVGO,CVS,DIDIY,SQ,ABNB,VERU,GOEV,PDD,ARDX,"
+                        "HAFC,QYLD,VEON,ABR,NIO,D,XYLD,JEPI,RWLK,GCT,TER,FXI,LBPH,HTZ,CAR,ABBV,UVV,MO,CL,NBR,SAVE,"
+                        "NVAX,DUOL,WBTN,VFS,STLA,HYG,SOF,ECL,TMO,SMCI,LLY,ISRG,SGOV,NVO,MSTR,CAPV,COF,MRNY,ARM,BKH,"
+                        "WRD,SOUN,NBIS,SERV,TSLL,GEV,STZ,NMAX,CRSP,BEAM,CRSH,PONY,XYZ,R,APUS,MP,OSIS,KTOS,AISP,SHOP,"
+                        "NOC,OXY,IOT,JOBY,VEEV,TOST,PG,MSTU,MSTX,SOXX,SUPL,PNC,SMR,PEW,DE,FIG,BLSH,HP,LRCX,XRPC,EIX,"
+                        "BB,SPCX,SKHY")
+        univ_text = st.text_area("워치리스트 (티커, 쉼표 구분) — 286개 등록됨", default_univ, height=140)
+        st.caption("⚠️ 여기서 고친 목록은 페이지를 완전히 새로고침/재접속하면 이 기본값으로 되돌아갑니다. "
+                   "종목이 워낙 많아 1단계(등락률 계산)는 100개씩 나눠 조회하며, 아래 슬라이더로 고른 "
+                   "'상위 N개'만 정밀 분석(2단계)하므로 속도는 크게 느려지지 않습니다.")
+        params["universe"] = [x.strip().upper().lstrip("$").replace("/", "-")
+                              for x in univ_text.split(",") if x.strip()]
+        params["top_n"] = st.slider("등락률 상위 N개 분석", 5, 60, 20)
         with st.expander("세부 필터"):
             params["min_volume"] = st.number_input("최소 거래량(주)", value=500_000, step=50_000)
             params["min_price"] = st.number_input("최소 가격($)", value=3.0, step=1.0)
@@ -387,15 +413,19 @@ with tab_scan:
             with st.spinner("등락률 상위 종목 조회 중..."):
                 result_df = run_scan(market_type, params)
             if result_df.empty:
+                st.session_state.pop("scan_result", None)
+                st.session_state.pop("scan_market", None)
                 st.info("조건에 맞는 종목이 없거나 데이터를 가져오지 못했습니다. (휴장일이거나 필터가 과도할 수 있습니다)")
             else:
                 st.session_state["scan_result"] = result_df
                 st.session_state["scan_market"] = market_type
                 st.success(f"{len(result_df)}개 종목 분석 완료 ({time.time() - t0:.0f}초)")
         except Exception as e:
+            st.session_state.pop("scan_result", None)
+            st.session_state.pop("scan_market", None)
             st.error(f"⚠️ 데이터 로드 실패: {e}\n\n네트워크 상태를 확인하거나 잠시 후 다시 시도해주세요.")
 
-    if "scan_result" in st.session_state:
+    if "scan_result" in st.session_state and st.session_state.get("scan_market") == market_type:
         df_r = st.session_state["scan_result"]
         n_buy = int((df_r["판정"] == "✅ 매수후보").sum())
         n_watch = int((df_r["판정"] == "👀 관찰").sum())
